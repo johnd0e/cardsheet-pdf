@@ -1,0 +1,34 @@
+//go:build !pdfcpu
+
+package pdfgen
+
+import "github.com/go-pdf/fpdf"
+
+func init() {
+	BackendName = "fpdf"
+	// BackendVersion will be filled from build info in main if available.
+}
+
+type impl struct {
+	pdf *fpdf.Fpdf
+}
+
+func newImpl() Generator {
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+	return &impl{pdf: pdf}
+}
+
+func (g *impl) AddImage(path string, x, y, w, h float64) error {
+	// fpdf.Image accepts a file path for raster images.
+	g.pdf.Image(path, x, y, w, h, false, "", 0, "")
+	return g.pdf.Error()
+}
+
+func (g *impl) NewPage() {
+	g.pdf.AddPage()
+}
+
+func (g *impl) Save(out string) error {
+	return g.pdf.OutputFileAndClose(out)
+}
