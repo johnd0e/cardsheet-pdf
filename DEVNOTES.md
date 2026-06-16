@@ -60,6 +60,33 @@ go run . -out cards.pdf card1.jpg card2.jpg
 go run -tags pdfcpu . -out cards.pdf card1.jpg card2.jpg
 ```
 
+## Examples
+
+The repository includes public-domain specimen cards for trying the layout modes:
+
+| German ID card | U.S. passport card |
+|----------------|--------------------|
+| <img src="examples/input/de-id-front.png" width="220" alt="German ID card front specimen"> | <img src="examples/input/us-passport-card-front.jpg" width="220" alt="U.S. passport card front specimen"> |
+
+Generate a default top-to-bottom layout:
+
+```sh
+cardsheet -out examples/output/default.pdf examples/input/de-id-front.png examples/input/de-id-back.png examples/input/us-passport-card-front.jpg examples/input/us-passport-card-back.jpg
+```
+
+Generate a two-column side-by-side layout:
+
+```sh
+cardsheet -side-by-side -out examples/output/side-by-side.pdf examples/input/de-id-front.png examples/input/de-id-back.png examples/input/us-passport-card-front.jpg examples/input/us-passport-card-back.jpg
+```
+
+The README layout thumbnails are generated from the same example images and layout coordinates:
+
+- `examples/output/default.png`
+- `examples/output/side-by-side.png`
+
+See [examples/SOURCES.md](examples/SOURCES.md) for image sources and licensing notes.
+
 ## Platforms
 
 - The code should build on Windows, Linux, and macOS.

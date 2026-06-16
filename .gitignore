@@ -16,6 +16,14 @@
 *.png
 *.pdf
 dist/
+!examples/
+!examples/input/
+!examples/input/*.jpg
+!examples/input/*.png
+!examples/output/
+!examples/output/.gitkeep
+!examples/output/*.png
+!examples/SOURCES.md
 
 # Code coverage profiles and other test artifacts
 *.out

@@ -11,6 +11,10 @@ It is intended for workflows such as:
 
 The tool arranges card images onto an **A4 portrait** page using a clean, predictable layout.
 
+| Default layout | Side-by-side mode |
+|----------------|-------------------|
+| <img src="examples/output/default.png" width="180" alt="Default layout PDF preview"> | <img src="examples/output/side-by-side.png" width="180" alt="Side-by-side layout PDF preview"> |
+
 ---
 
 ## Purpose
