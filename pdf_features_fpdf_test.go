@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"image"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"cardsheet-pdf/internal/pdfimages"
 	"cardsheet-pdf/pdfgen"
 
 	"codeberg.org/go-pdf/fpdf"
@@ -27,11 +29,18 @@ func TestFPDFGenerateExtractPreservesSourceNames(t *testing.T) {
 	if err := gen.AddImage(first, "front.png", 0, 0, 85.6, 53.98); err != nil {
 		t.Fatal(err)
 	}
-	if err := gen.AddImage(second, "back.png", 0, 60, 85.6, 53.98); err != nil {
+	if err := gen.AddImage(second, "back$1 (copy).png", 0, 60, 85.6, 53.98); err != nil {
 		t.Fatal(err)
 	}
 	if err := gen.Save(outPDF); err != nil {
 		t.Fatal(err)
+	}
+	data, err := os.ReadFile(outPDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("/CardsheetSourceFilename")) {
+		t.Fatal("generated PDF does not contain XObject source-name metadata")
 	}
 
 	outDir := filepath.Join(dir, "extract")
@@ -42,7 +51,7 @@ func TestFPDFGenerateExtractPreservesSourceNames(t *testing.T) {
 	if len(written) != 2 {
 		t.Fatalf("extracted %d images, want 2: %v", len(written), written)
 	}
-	for _, name := range []string{"front.png", "back.png"} {
+	for _, name := range []string{"front.png", "back$1 (copy).png"} {
 		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
 			t.Fatalf("missing extracted %s: %v", name, err)
 		}
@@ -74,7 +83,7 @@ func TestFPDFPDFInputAcceptsCardsheetPDF(t *testing.T) {
 	}
 }
 
-func TestFPDFPDFInputRejectsManifestMismatch(t *testing.T) {
+func TestFPDFPDFInputIgnoresBadLegacyManifestWhenXObjectNamesMatch(t *testing.T) {
 	dir := t.TempDir()
 	img := writeFPDFTestPNG(t, filepath.Join(dir, "front.png"), color.RGBA{G: 255, A: 255})
 	outPDF := filepath.Join(dir, "cards.pdf")
@@ -100,8 +109,35 @@ func TestFPDFPDFInputRejectsManifestMismatch(t *testing.T) {
 	}
 
 	_, _, err = expandPDFInputs([]string{outPDF})
-	if err == nil {
-		t.Fatal("expected PDF input to reject mismatched cardsheet manifest")
+	if err != nil {
+		t.Fatalf("PDF input should use XObject metadata before legacy manifest: %v", err)
+	}
+}
+
+func TestFPDFExtractLegacyManifestOnlyPDF(t *testing.T) {
+	dir := t.TempDir()
+	img := writeFPDFTestPNG(t, filepath.Join(dir, "legacy.png"), color.RGBA{G: 255, A: 255})
+	outPDF := filepath.Join(dir, "legacy.pdf")
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+	pdf.Image(img, 10, 10, 40, 30, false, "", 0, "")
+	if err := pdf.OutputFileAndClose(outPDF); err != nil {
+		t.Fatal(err)
+	}
+	images, err := pdfimages.Read(outPDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pdfimages.WriteManifest(outPDF, images, []string{"legacy.png"}); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := extractPDFImagesToDir(outPDF, filepath.Join(dir, "extract"), conflictRename, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 1 || filepath.Base(written[0]) != "legacy.png" {
+		t.Fatalf("written = %v, want legacy.png", written)
 	}
 }
 

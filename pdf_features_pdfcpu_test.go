@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"cardsheet-pdf/internal/pdfimages"
 	"cardsheet-pdf/pdfgen"
 
+	"codeberg.org/go-pdf/fpdf"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
@@ -86,6 +88,23 @@ func TestPDFInputRejectsExternalPDFWithoutSourceNames(t *testing.T) {
 	}
 }
 
+func TestPDFCPUExtractsFPDFXObjectSourceNames(t *testing.T) {
+	dir := t.TempDir()
+	img := writePNG(t, filepath.Join(dir, "front.png"), color.RGBA{R: 255, A: 255})
+	pdf := filepath.Join(dir, "fpdf.pdf")
+	if err := writeFPDFWithXObjectSourceNames(pdf, img, []string{"front.png"}); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := extractPDFImagesToDir(pdf, filepath.Join(dir, "extract"), conflictRename, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 1 || filepath.Base(written[0]) != "front.png" {
+		t.Fatalf("written = %v, want front.png", written)
+	}
+}
+
 func writePNG(t *testing.T, path string, c color.Color) string {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 16, 10))
@@ -138,4 +157,18 @@ func writeForeignPDF(outPDF, imagePath string) error {
 	defer f.Close()
 	api.DisableConfigDir()
 	return api.Create(nil, &buf, f, model.NewDefaultConfiguration())
+}
+
+func writeFPDFWithXObjectSourceNames(outPDF, imagePath string, sourceNames []string) error {
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+	pdf.Image(imagePath, 10, 10, 40, 30, false, "", 0, "")
+	if err := pdf.OutputFileAndClose(outPDF); err != nil {
+		return err
+	}
+	images, err := pdfimages.Read(outPDF)
+	if err != nil {
+		return err
+	}
+	return pdfimages.WriteXObjectSourceNames(outPDF, images, sourceNames)
 }

@@ -3,6 +3,7 @@
 package pdfgen
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"cardsheet-pdf/internal/pdfimages"
@@ -73,5 +74,17 @@ func (g *impl) Save(out string) error {
 	if err != nil {
 		return err
 	}
-	return pdfimages.WriteManifest(out, images, g.sourceNames)
+	if err := pdfimages.WriteXObjectSourceNames(out, images, g.sourceNames); err != nil {
+		return err
+	}
+	verified, err := pdfimages.Read(out)
+	if err != nil {
+		return err
+	}
+	if _, ok, err := pdfimages.ValidatedSourceNames(out, verified); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("cardsheet source-name validation failed after fpdf postprocessing")
+	}
+	return nil
 }

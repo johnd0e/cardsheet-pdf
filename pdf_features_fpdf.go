@@ -72,11 +72,11 @@ func extractPDFImagesToDir(pdfPath, outDir string, mode conflictMode, requireSou
 	if err != nil {
 		return nil, err
 	}
-	names, validManifest, err := pdfimages.ValidatedNames(pdfPath, images)
+	names, validSourceNames, err := pdfimages.ValidatedSourceNames(pdfPath, images)
 	if err != nil {
 		return nil, err
 	}
-	if requireSourceNames && !validManifest {
+	if requireSourceNames && !validSourceNames {
 		return nil, fmt.Errorf("%s: PDF input must be a PDF previously created by cardsheet", pdfPath)
 	}
 
