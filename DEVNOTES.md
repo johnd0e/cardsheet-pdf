@@ -10,6 +10,7 @@
 ## Layout Decisions
 
 - Horizontal centering intentionally centers the full grid block, not the currently populated partial row or partial page.
+- Repeated `-gap` values are applied cyclically between columns.
 - Default normal mode keeps the historical alternating vertical gap of `5/10 mm`.
 - If `-vgap` is explicitly supplied in normal mode, the supplied value is used as a fixed vertical gap.
 - Side-by-side mode always uses two columns.
@@ -17,14 +18,16 @@
 ## Backend Differences
 
 - The project supports two Go PDF backends behind the same `Generator` interface.
-- Default backend: [`fpdf`](https://github.com/go-pdf/fpdf). Build normally with `go build`, or explicitly with `go build -tags fpdf`.
-- Alternative backend: [`pdfcpu`](https://github.com/pdfcpu/pdfcpu). Build with `go build -tags pdfcpu`.
-- Both backends implement the same CLI behavior.
-- `fpdf` draws images directly into the requested rectangle.
+- Default backend: [`pdfcpu`](https://github.com/pdfcpu/pdfcpu). Build normally with `go build`.
+- Alternative backend: [`fpdf`](https://codeberg.org/go-pdf/fpdf). Build with `go build -tags fpdf`.
+- The default `pdfcpu` backend supports PDF inputs, wildcard expansion, image XObject source-name metadata, and `cardsheet extract`.
+- The `fpdf` backend supports image-to-PDF generation only.
+- `fpdf` centers images inside the requested rectangle while preserving aspect ratio.
 - `pdfcpu` uses high-level image boxes and fits image content into the requested rectangle while preserving aspect ratio.
 - `pdfcpu` coordinates are converted from millimetres to PDF points before passing data to `api.Create`.
 - `pdfcpu` uses `LowerLeft` origin, so y coordinates are translated from the CLI's top-left layout model.
 - Page layout coordinates are shared between backends, but image content inside each card rectangle may differ slightly because of backend rendering behavior.
+- Both backends overwrite an existing `-out` target.
 
 ## Validation
 
@@ -41,23 +44,38 @@
 - Without `-dpi`, `-verbose` only reports current effective DPI and highlights images below 300 DPI.
 - Downsampled images are written to temporary files and deleted after PDF generation.
 - If a downsampled candidate is not smaller than the original encoded image, the original file is kept.
+- Source-name metadata always stores the original input basename, even when the image was downsampled into a temporary file before PDF generation.
+
+## PDF Roundtrip
+
+- PDF roundtrip behavior is supported in the default Go build.
+- The `pdfcpu` generator writes `/CardsheetSourceFilename` into each image XObject after creating the PDF.
+- Only the basename is stored, never the full source path.
+- `cardsheet extract [--out-dir DIR] [--overwrite | --rename] input.pdf` extracts all images from all pages, including arbitrary external PDFs.
+- If `/CardsheetSourceFilename` exists, extraction uses that basename.
+- For external PDFs without this metadata, extraction falls back to `<pdf-base><N>.<ext>`.
+- In interactive mode, conflicts prompt with path, modification time, and size. In non-interactive mode, conflicts require `--overwrite` or `--rename`.
+- PDF inputs are limited to PDFs previously created by this utility. They are expanded into temporary image files before validation and layout, preserving argument order.
+- The PDF input path rejects PDFs with image XObjects missing `/CardsheetSourceFilename`; `extract` keeps accepting those PDFs via fallback names.
+- Wildcard expansion happens before validation and sorts matches lexicographically.
+- The `fpdf` build rejects `extract` and PDF inputs with `unsupported feature: rebuild without -tags fpdf`.
 
 ## Build Tags
 
-- Default build uses the `fpdf` backend.
-- `go build -tags pdfcpu` uses the `pdfcpu` backend.
+- Default build uses the `pdfcpu` backend.
+- `go build -tags fpdf` uses the `fpdf` backend.
 - Both backend variants should pass tests:
 
 ```sh
 go test ./...
-go test -tags pdfcpu ./...
+go test -tags fpdf ./...
 ```
 
 Smoke-test generation with local sample files:
 
 ```sh
 go run . -out cards.pdf card1.jpg card2.jpg
-go run -tags pdfcpu . -out cards.pdf card1.jpg card2.jpg
+go run -tags fpdf . -out cards.pdf card1.jpg card2.jpg
 ```
 
 ## Examples
@@ -97,15 +115,16 @@ See [examples/SOURCES.md](examples/SOURCES.md) for image sources and licensing n
 GOOS=linux GOARCH=amd64 go build
 ```
 
-## Python Prototype
+## Python Version
 
-- `cardsheet.py` is an experimental Python implementation of the same layout rules.
+- `cardsheet.py` is a Python implementation of the same layout rules.
 - It uses [ReportLab](https://www.reportlab.com/dev/docs/) canvas APIs and draws images into A4 pages.
 - By default it preserves image aspect ratio inside each card rectangle.
-- Use `-stretch` to fill each card rectangle like the `fpdf` backend.
-- It declares its Python dependency inline using script metadata.
+- Use `-stretch` to fill each card rectangle in the Python prototype.
+- It declares its Python dependencies inline using script metadata.
 - Run it with `uv run`; `uv` creates and manages the script environment.
 - It supports the same core CLI options as the Go version: `-out`, `-gap`, `-vgap`, `-dpi`, `-verbose`, `-side-by-side`, and `-version`.
+- It also supports `extract`, PDF input, wildcard expansion, and `/CardsheetSourceFilename` metadata using [pypdf](https://pypdf.readthedocs.io/).
 - Image validation, effective-DPI reporting, and optional downsampling are implemented with [Pillow](https://python-pillow.org/).
 - Unsupported or unreadable images fail with an `input error`, matching the Go CLI behavior.
 
@@ -136,5 +155,5 @@ python -m unittest discover -s tests
 
 - Run `gofmt` on edited Go files.
 - Run `go test ./...`.
-- Run `go test -tags pdfcpu ./...` if any shared, layout, CLI, version, or pdfgen code changed.
+- Run `go test -tags fpdf ./...` if any shared, layout, CLI, version, or pdfgen code changed.
 - For output/layout changes, generate both fpdf and pdfcpu smoke-test PDFs.

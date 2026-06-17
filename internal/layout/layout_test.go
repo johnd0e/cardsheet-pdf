@@ -92,6 +92,30 @@ func TestNormalLayoutMovesToNextColumn(t *testing.T) {
 	}
 }
 
+func TestNormalLayoutAlternatesRepeatedHorizontalGaps(t *testing.T) {
+	opts := baseOptions()
+	opts.CardW = 10
+	opts.CardH = 10
+	opts.PageW = 45
+	opts.PageH = 10
+	opts.TopMargin = 0
+	opts.BottomMargin = 0
+	opts.Gap = 1
+	opts.Gaps = []float64{1, 2}
+	opts.VGap = 1
+
+	got := Plan([]string{"a.jpg", "b.jpg", "c.jpg", "d.jpg"}, opts)
+	if len(got) != 4 {
+		t.Fatalf("len(got) = %d, want 4", len(got))
+	}
+
+	for i, wantX := range []float64{0.5, 11.5, 23.5, 34.5} {
+		if !closeEnough(got[i].X, wantX) {
+			t.Fatalf("got[%d].X = %.2f, want %.2f", i, got[i].X, wantX)
+		}
+	}
+}
+
 func TestSideLayoutStartsNewPage(t *testing.T) {
 	opts := baseOptions()
 	opts.Mode = ModeSide

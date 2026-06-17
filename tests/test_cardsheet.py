@@ -99,6 +99,11 @@ class CliTests(unittest.TestCase):
         self.assertFalse(args.side_by_side)
         self.assertFalse(args.stretch)
 
+    def test_parse_args_collects_repeated_gap(self) -> None:
+        args = cardsheet.parse_args(["-gap", "5", "-gap", "10", "a.jpg"])
+
+        self.assertEqual(args.gap, [5.0, 10.0])
+
     def test_no_files_returns_usage_error(self) -> None:
         stdout = io.StringIO()
 
@@ -117,6 +122,16 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("-dpi must be greater than or equal to 0", stderr.getvalue())
+
+    def test_expand_wildcards_sorts_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "b.png").write_text("x")
+            (root / "a.png").write_text("x")
+
+            got = cardsheet.expand_wildcards([root / "*.png"])
+
+        self.assertEqual([p.name for p in got], ["a.png", "b.png"])
 
 
 class ImagePreprocessTests(unittest.TestCase):
@@ -144,6 +159,60 @@ class ImagePreprocessTests(unittest.TestCase):
                 self.assertTrue(results[0].kept_original)
         for path in temp_files:
             path.unlink(missing_ok=True)
+
+
+class PythonRoundtripTests(unittest.TestCase):
+    def test_generate_extract_preserves_source_names(self) -> None:
+        try:
+            from PIL import Image
+            import pypdf  # noqa: F401
+            import reportlab  # noqa: F401
+        except ModuleNotFoundError as err:
+            self.skipTest(f"{err.name} is not installed")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            first = root / "front.png"
+            second = root / "back.png"
+            Image.new("RGB", (32, 20), "red").save(first)
+            Image.new("RGB", (32, 20), "blue").save(second)
+
+            pdf = root / "cards.pdf"
+            code = cardsheet.main(["-out", str(pdf), str(first), str(second)])
+            self.assertEqual(code, 0)
+
+            out_dir = root / "extract"
+            code = cardsheet.main(["extract", "--out-dir", str(out_dir), "--rename", str(pdf)])
+            self.assertEqual(code, 0)
+            self.assertTrue((out_dir / "front.png").exists())
+            self.assertTrue((out_dir / "back.png").exists())
+
+    def test_pdf_input_rejects_pdf_without_source_names(self) -> None:
+        try:
+            from PIL import Image
+            from reportlab.lib.pagesizes import A4
+            from reportlab.pdfgen import canvas
+            import pypdf  # noqa: F401
+        except ModuleNotFoundError as err:
+            self.skipTest(f"{err.name} is not installed")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            image = root / "foreign.png"
+            Image.new("RGB", (32, 20), "green").save(image)
+
+            pdf = root / "foreign.pdf"
+            doc = canvas.Canvas(str(pdf), pagesize=A4)
+            doc.drawImage(str(image), 20, 700, width=120, height=80)
+            doc.save()
+
+            with self.assertRaises(ValueError):
+                cardsheet.expand_pdf_inputs([pdf], [])
+
+            out_dir = root / "extract"
+            written = cardsheet.extract_pdf_images(pdf, out_dir, "rename")
+            self.assertEqual(len(written), 1)
+            self.assertEqual(written[0].name, "foreign1.png")
 
 
 if __name__ == "__main__":

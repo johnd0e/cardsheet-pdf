@@ -22,6 +22,7 @@ type Options struct {
 type Result struct {
 	OriginalPath string
 	Path         string
+	SourceName   string
 	Format       string
 	Width        int
 	Height       int
@@ -86,6 +87,7 @@ func prepareOne(path string, opts Options) (Result, error) {
 	result := Result{
 		OriginalPath: path,
 		Path:         path,
+		SourceName:   filepath.Base(path),
 		Format:       format,
 		Width:        w,
 		Height:       h,

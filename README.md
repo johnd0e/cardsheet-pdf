@@ -1,13 +1,8 @@
 # cardsheet-pdf - Printable A4 PDF Sheets for Card Images
 
 `cardsheet` is a command-line tool designed specifically for preparing printable PDF sheets from images of standard-sized cards.
-It is intended for workflows such as:
 
-- ID cards
-- membership cards
-- access badges
-- collectible cards
-- any other card‑like images with consistent dimensions
+It is intended for ID cards, membership cards, access badges, and other card‑like images with consistent dimensions.
 
 The tool arranges card images onto an **A4 portrait** page using a clean, predictable layout.
 
@@ -24,17 +19,18 @@ The project solves a simple but common problem:
 
 The tool assumes:
 
-- Input images are **JPEG or PNG files**
+- Input images are **JPEG**, **PNG** and **PDF** files (previously created by this tool)
 - Images are already in the **correct orientation**
 - The output page format is **A4 portrait** (210 × 297 mm)
 - Cards are placed in a **grid layout** with configurable spacing
 
 Card dimensions are fixed to real‑world [ID‑1](https://en.wikipedia.org/wiki/ISO/IEC_7810) card size:
 
-- **Width:** 85.6 mm  
-- **Height:** 53.98 mm  
+- **Width:** 85.6 mm
+- **Height:** 53.98 mm
 
-Images are scaled to these physical dimensions regardless of pixel resolution.
+Images are placed into this physical rectangle in the PDF. Print sharpness still depends on the source pixel resolution; use `-dpi` only to cap oversized embedded images.
+Images keep their aspect ratio inside the card rectangle.
 
 ---
 
@@ -59,7 +55,7 @@ Images are scaled to these physical dimensions regardless of pixel resolution.
 Basic usage:
 
 ```
-cardsheet -out output.pdf image1.jpg image2.jpg
+cardsheet image1.jpg image2.jpg
 ```
 
 
@@ -67,13 +63,15 @@ cardsheet -out output.pdf image1.jpg image2.jpg
 
 | Option | Description |
 |--------|-------------|
-| `-out <file>` | Output PDF file name |
-| `-gap <mm>` | Horizontal spacing |
-| `-vgap <mm>` | Vertical spacing |
 | `-dpi <dpi>` | Limit embedded image resolution to this effective DPI |
-| `-verbose` | Show image DPI and resize information |
+| `-gap <mm>` | Horizontal spacing; repeat to alternate between columns |
+| `-out <file>` | Output PDF file name; defaults to `output.pdf` and overwrites an existing file |
 | `-side-by-side` | Force side-by-side layout |
+| `-verbose` | Show image DPI and resize information |
 | `-version` | Show version and backend |
+| `-vgap <mm>` | Vertical spacing |
+
+Input arguments may use shell-style wildcards (`*`, `?`, `[...]`). Wildcard matches are sorted lexicographically.
 
 ### Example
 
@@ -83,6 +81,26 @@ cardsheet -out cards.pdf -side-by-side card1.jpg card2.jpg
 
 
 This produces an A4 PDF with two cards per row.
+
+### PDF Roundtrip
+
+Generated PDFs store each image's original basename in the image metadata. You can extract those images later:
+
+```sh
+cardsheet extract cards.pdf
+```
+
+Extraction also works with other PDF files. When source-name metadata is missing, extracted images use fallback names like `cards1.jpg` or `cards2.png`.
+
+Options:
+
+| Option | Behavior |
+|--------|----------|
+| `--out-dir <dir>` | Write extracted images into a directory |
+| `--overwrite` | Replace existing files |
+| `--rename` | Write `name-1.ext`, `name-2.ext`, ... on conflicts |
+
+Without either flag, interactive terminals prompt for overwrite, rename, or skip. Non-interactive runs fail with a hint.
 
 ---
 
@@ -94,7 +112,7 @@ A Python implementation is also available for quick runs without building the Go
 uv run cardsheet.py -out cards.pdf card1.jpg card2.jpg
 ```
 
-It supports the same core layout, DPI, verbose, side-by-side, and version options as the Go CLI.
+It supports the same options as the Go CLI.
 
 ---
 
@@ -107,5 +125,3 @@ go build
 ```
 
 The Go implementation supports multiple PDF backends. Backend-specific build tags and behavior notes are documented in [DEVNOTES.md](DEVNOTES.md).
-
-

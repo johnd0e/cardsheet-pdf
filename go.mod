@@ -3,8 +3,9 @@ module cardsheet-pdf
 go 1.25.0
 
 require (
-	github.com/go-pdf/fpdf v0.9.0
+	codeberg.org/go-pdf/fpdf v0.12.0
 	github.com/pdfcpu/pdfcpu v0.13.0
+	golang.org/x/image v0.41.0
 )
 
 require (
@@ -15,7 +16,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
-	golang.org/x/image v0.41.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

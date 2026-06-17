@@ -8,6 +8,7 @@ const (
 type Options struct {
 	Mode               string
 	Gap                float64
+	Gaps               []float64
 	VGap               float64
 	AlternateNormalGap bool
 	CardW              float64
@@ -38,7 +39,7 @@ func planSide(files []string, opts Options) []Placement {
 	const cols = 2
 
 	bottomLimit := opts.PageH - opts.BottomMargin
-	xStart := (opts.PageW - float64(cols)*(opts.CardW+opts.Gap) + opts.Gap) / 2
+	xs := columnPositions(opts, cols)
 
 	page := 0
 	col := 0
@@ -46,7 +47,7 @@ func planSide(files []string, opts Options) []Placement {
 	placements := make([]Placement, 0, len(files))
 
 	for _, path := range files {
-		x := xStart + float64(col)*(opts.CardW+opts.Gap)
+		x := xs[col]
 		y := opts.TopMargin + float64(row)*(opts.CardH+opts.VGap)
 
 		if y+opts.CardH > bottomLimit {
@@ -77,12 +78,8 @@ func planSide(files []string, opts Options) []Placement {
 func planNormal(files []string, opts Options) []Placement {
 	bottomLimit := opts.PageH - opts.BottomMargin
 
-	maxCols := int((opts.PageW + opts.Gap) / (opts.CardW + opts.Gap))
-	if maxCols < 1 {
-		maxCols = 1
-	}
-
-	xStart := (opts.PageW - float64(maxCols)*(opts.CardW+opts.Gap) + opts.Gap) / 2
+	xs := fittingColumnPositions(opts)
+	maxCols := len(xs)
 
 	page := 0
 	col := 0
@@ -110,11 +107,10 @@ func planNormal(files []string, opts Options) []Placement {
 			}
 		}
 
-		x := xStart + float64(col)*(opts.CardW+opts.Gap)
 		placements = append(placements, Placement{
 			Path: path,
 			Page: page,
-			X:    x,
+			X:    xs[col],
 			Y:    y,
 			W:    opts.CardW,
 			H:    opts.CardH,
@@ -125,4 +121,54 @@ func planNormal(files []string, opts Options) []Placement {
 	}
 
 	return placements
+}
+
+func gaps(opts Options) []float64 {
+	if len(opts.Gaps) > 0 {
+		return opts.Gaps
+	}
+	return []float64{opts.Gap}
+}
+
+func gapAt(values []float64, index int) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	return values[index%len(values)]
+}
+
+func fittingColumnPositions(opts Options) []float64 {
+	gs := gaps(opts)
+	cols := 1
+	totalW := opts.CardW
+	for {
+		nextW := totalW + gapAt(gs, cols-1) + opts.CardW
+		if nextW > opts.PageW {
+			break
+		}
+		totalW = nextW
+		cols++
+	}
+	return columnPositions(opts, cols)
+}
+
+func columnPositions(opts Options, cols int) []float64 {
+	if cols < 1 {
+		cols = 1
+	}
+	gs := gaps(opts)
+	totalW := float64(cols) * opts.CardW
+	for i := 0; i < cols-1; i++ {
+		totalW += gapAt(gs, i)
+	}
+
+	x := (opts.PageW - totalW) / 2
+	xs := make([]float64, cols)
+	for i := range xs {
+		xs[i] = x
+		if i < cols-1 {
+			x += opts.CardW + gapAt(gs, i)
+		}
+	}
+	return xs
 }

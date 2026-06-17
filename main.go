@@ -6,6 +6,10 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 
 	"cardsheet-pdf/internal/images"
 	"cardsheet-pdf/internal/layout"
@@ -34,7 +38,11 @@ func depVersionOrUnknown(modulePrefix string) string {
 }
 
 func main() {
-	var gap float64
+	if len(os.Args) > 1 && os.Args[1] == "extract" {
+		os.Exit(runExtract(os.Args[2:]))
+	}
+
+	var gaps repeatedFloatFlag
 	var vgap float64
 	var dpi int
 	var verbose bool
@@ -42,7 +50,7 @@ func main() {
 	var outFile string
 	var showVersion bool
 
-	flag.Float64Var(&gap, "gap", -1, "Horizontal gap (mm)")
+	flag.Var(&gaps, "gap", "Horizontal gap (mm); repeat to alternate")
 	flag.Float64Var(&vgap, "vgap", -1, "Vertical gap (mm)")
 	flag.IntVar(&dpi, "dpi", 0, "Limit embedded image resolution to this effective DPI")
 	flag.BoolVar(&verbose, "verbose", false, "Show image DPI and resize information")
@@ -56,7 +64,7 @@ func main() {
 	if AppVersion == "unknown" {
 		AppVersion = version.TryBuildInfoVersion()
 	}
-	pdfgen.BackendVersion = depVersionOrUnknown("github.com/go-pdf/fpdf")
+	pdfgen.BackendVersion = depVersionOrUnknown("codeberg.org/go-pdf/fpdf")
 	if pdfgen.BackendVersion == "unknown" {
 		pdfgen.BackendVersion = depVersionOrUnknown("github.com/pdfcpu/pdfcpu")
 	}
@@ -66,13 +74,26 @@ func main() {
 		return
 	}
 
-	files := flag.Args()
+	files, err := expandWildcards(flag.Args())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "input error:", err)
+		os.Exit(1)
+	}
 	if len(files) == 0 {
 		fmt.Println("Usage: cardsheet [options] img1 img2 ...")
 		os.Exit(1)
 	}
 	if dpi < 0 {
 		fmt.Fprintln(os.Stderr, "input error: -dpi must be greater than or equal to 0")
+		os.Exit(1)
+	}
+
+	files, pdfCleanup, err := expandPDFInputs(files)
+	if pdfCleanup != nil {
+		defer pdfCleanup()
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "input error:", err)
 		os.Exit(1)
 	}
 
@@ -104,9 +125,9 @@ func main() {
 
 	if !flagPassed("gap") {
 		if mode == layout.ModeNormal {
-			gap = 10
+			gaps = repeatedFloatFlag{10}
 		} else {
-			gap = 5
+			gaps = repeatedFloatFlag{5}
 		}
 	}
 
@@ -121,7 +142,8 @@ func main() {
 
 	placements := layout.Plan(paths, layout.Options{
 		Mode:               mode,
-		Gap:                gap,
+		Gap:                gaps[0],
+		Gaps:               []float64(gaps),
 		VGap:               vgap,
 		AlternateNormalGap: mode == layout.ModeNormal && !vgapPassed,
 		CardW:              85.6,
@@ -134,12 +156,16 @@ func main() {
 
 	gen := pdfgen.New()
 	currentPage := 0
-	for _, p := range placements {
+	for i, p := range placements {
 		for currentPage < p.Page {
 			gen.NewPage()
 			currentPage++
 		}
-		if err := gen.AddImage(p.Path, p.X, p.Y, p.W, p.H); err != nil {
+		sourceName := filepath.Base(p.Path)
+		if i < len(prepared) {
+			sourceName = prepared[i].SourceName
+		}
+		if err := gen.AddImage(p.Path, sourceName, p.X, p.Y, p.W, p.H); err != nil {
 			fmt.Fprintln(os.Stderr, "add image error:", err)
 			os.Exit(2)
 		}
@@ -151,6 +177,52 @@ func main() {
 	}
 
 	fmt.Println("Saved:", outFile)
+}
+
+func expandWildcards(args []string) ([]string, error) {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		if !hasWildcard(arg) {
+			out = append(out, arg)
+			continue
+		}
+		matches, err := filepath.Glob(arg)
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid wildcard pattern", arg)
+		}
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("%s: wildcard matched no files", arg)
+		}
+		sort.Strings(matches)
+		out = append(out, matches...)
+	}
+	return out, nil
+}
+
+func hasWildcard(path string) bool {
+	return strings.ContainsAny(path, "*?[")
+}
+
+type repeatedFloatFlag []float64
+
+func (f *repeatedFloatFlag) Set(value string) error {
+	v, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return err
+	}
+	*f = append(*f, v)
+	return nil
+}
+
+func (f *repeatedFloatFlag) String() string {
+	if f == nil || len(*f) == 0 {
+		return ""
+	}
+	parts := make([]string, len(*f))
+	for i, v := range *f {
+		parts[i] = strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	return strings.Join(parts, ",")
 }
 
 func printImageInfo(results []images.Result, maxDPI int) {

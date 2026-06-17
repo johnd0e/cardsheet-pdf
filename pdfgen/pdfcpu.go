@@ -1,4 +1,4 @@
-//go:build pdfcpu
+//go:build !fpdf
 
 package pdfgen
 
@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -20,7 +22,9 @@ func init() {
 }
 
 type impl struct {
-	pages []page
+	pages       []page
+	sourceNames []string
+	seenSrc     map[string]bool
 }
 
 type page struct {
@@ -49,12 +53,16 @@ type createContent struct {
 }
 
 func newImpl() Generator {
-	return &impl{pages: []page{{}}}
+	return &impl{pages: []page{{}}, seenSrc: map[string]bool{}}
 }
 
-func (g *impl) AddImage(path string, x, y, w, h float64) error {
+func (g *impl) AddImage(path, sourceName string, x, y, w, h float64) error {
 	if len(g.pages) == 0 {
 		g.NewPage()
+	}
+	if !g.seenSrc[path] {
+		g.seenSrc[path] = true
+		g.sourceNames = append(g.sourceNames, filepath.Base(sourceName))
 	}
 
 	g.pages[len(g.pages)-1].images = append(g.pages[len(g.pages)-1].images, imageBox{
@@ -98,9 +106,51 @@ func (g *impl) Save(out string) error {
 
 	api.DisableConfigDir()
 	conf := model.NewDefaultConfiguration()
-	return api.Create(nil, &buf, f, conf)
+	if err := api.Create(nil, &buf, f, conf); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if len(g.sourceNames) == 0 {
+		return nil
+	}
+	return annotateSourceNames(out, g.sourceNames)
 }
 
 func mm(v float64) float64 {
 	return types.ToUserSpace(v, types.MILLIMETRES)
+}
+
+func annotateSourceNames(path string, sourceNames []string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	conf := model.NewDefaultConfiguration()
+	conf.Cmd = model.OPTIMIZE
+	ctx, err := api.ReadValidateAndOptimize(f, conf)
+	if err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+
+	objNrs := make([]int, 0, len(ctx.Optimize.ImageObjects))
+	for objNr := range ctx.Optimize.ImageObjects {
+		objNrs = append(objNrs, objNr)
+	}
+	sort.Ints(objNrs)
+	for i, objNr := range objNrs {
+		if i >= len(sourceNames) {
+			break
+		}
+		ctx.Optimize.ImageObjects[objNr].ImageDict.InsertString("CardsheetSourceFilename", filepath.Base(sourceNames[i]))
+	}
+	ctx.ResetWriteContext()
+	return api.WriteContextFile(ctx, path)
 }
