@@ -3,7 +3,7 @@
 package main
 
 import (
-	"encoding/base64"
+	"bytes"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -27,11 +27,18 @@ func TestFPDFGenerateExtractPreservesSourceNames(t *testing.T) {
 	if err := gen.AddImage(first, "front.png", 0, 0, 85.6, 53.98); err != nil {
 		t.Fatal(err)
 	}
-	if err := gen.AddImage(second, "back.png", 0, 60, 85.6, 53.98); err != nil {
+	if err := gen.AddImage(second, "back$1 (copy).png", 0, 60, 85.6, 53.98); err != nil {
 		t.Fatal(err)
 	}
 	if err := gen.Save(outPDF); err != nil {
 		t.Fatal(err)
+	}
+	data, err := os.ReadFile(outPDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("/CardsheetSourceFilename")) {
+		t.Fatal("generated PDF does not contain XObject source-name metadata")
 	}
 
 	outDir := filepath.Join(dir, "extract")
@@ -42,7 +49,7 @@ func TestFPDFGenerateExtractPreservesSourceNames(t *testing.T) {
 	if len(written) != 2 {
 		t.Fatalf("extracted %d images, want 2: %v", len(written), written)
 	}
-	for _, name := range []string{"front.png", "back.png"} {
+	for _, name := range []string{"front.png", "back$1 (copy).png"} {
 		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
 			t.Fatalf("missing extracted %s: %v", name, err)
 		}
@@ -71,37 +78,6 @@ func TestFPDFPDFInputAcceptsCardsheetPDF(t *testing.T) {
 	}
 	if len(files) != 1 || filepath.Base(files[0]) != "front.png" {
 		t.Fatalf("expanded files = %v, want one front.png", files)
-	}
-}
-
-func TestFPDFPDFInputRejectsManifestMismatch(t *testing.T) {
-	dir := t.TempDir()
-	img := writeFPDFTestPNG(t, filepath.Join(dir, "front.png"), color.RGBA{G: 255, A: 255})
-	outPDF := filepath.Join(dir, "cards.pdf")
-
-	gen := pdfgen.New()
-	if err := gen.AddImage(img, "front.png", 0, 0, 85.6, 53.98); err != nil {
-		t.Fatal(err)
-	}
-	if err := gen.Save(outPDF); err != nil {
-		t.Fatal(err)
-	}
-	badManifest := `{"marker":"cardsheet","version":1,"images":[{"objectNumber":999,"sourceName":"wrong.png","extension":"png","encodedSha256":"bad"}]}`
-	f, err := os.OpenFile(outPDF, os.O_APPEND|os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.WriteString("\n% cardsheet-manifest " + base64.StdEncoding.EncodeToString([]byte(badManifest)) + "\n"); err != nil {
-		_ = f.Close()
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	_, _, err = expandPDFInputs([]string{outPDF})
-	if err == nil {
-		t.Fatal("expected PDF input to reject mismatched cardsheet manifest")
 	}
 }
 

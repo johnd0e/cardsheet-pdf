@@ -22,6 +22,7 @@
 - Alternative backend: [`fpdf`](https://codeberg.org/go-pdf/fpdf). Build with `go build -tags fpdf`.
 - The default `pdfcpu` backend supports PDF inputs, wildcard expansion, image XObject source-name metadata, and `cardsheet extract`.
 - The `fpdf` backend supports the same CLI surface for generation, `cardsheet extract`, wildcard expansion, and cardsheet-created PDF inputs, but its PDF parser is intentionally narrower.
+- The `fpdf` backend uses a local patch to add image XObject dictionary metadata support. The patch is stored in `patches/fpdf-xobject-metadata.patch` and materialized by `scripts/apply-fpdf-patch.ps1` into the ignored `internal/fpdfpatch/` directory.
 - `fpdf` centers images inside the requested rectangle while preserving aspect ratio.
 - `pdfcpu` uses high-level image boxes and fits image content into the requested rectangle while preserving aspect ratio.
 - `pdfcpu` coordinates are converted from millimetres to PDF points before passing data to `api.Create`.
@@ -49,7 +50,7 @@
 ## PDF Roundtrip
 
 - PDF roundtrip behavior is supported in both Go builds.
-- The two Go backends use different source-name metadata formats. They are backend-specific and are not currently cross-compatible.
+- Both Go backends use `/CardsheetSourceFilename` as the preferred source-name metadata format for new PDFs.
 - Source-name storage in the default `pdfcpu` build:
   - key: `/CardsheetSourceFilename`;
   - location: each image XObject dictionary;
@@ -58,19 +59,19 @@
   - extract path: names are used when `/CardsheetSourceFilename` exists, otherwise arbitrary PDF extraction falls back to `<pdf-base><N>.<ext>`;
   - PDF input path: requires every extracted image XObject to have `/CardsheetSourceFilename`.
 - Source-name storage in the `fpdf` build:
-  - marker/version: identifies cardsheet manifest data;
-  - location: document-level cardsheet manifest written as a trailing PDF comment;
-  - per-image fields: image object number, original input basename, extension, encoded stream SHA-256, and decoded image SHA-256 when available;
-  - write path: after PDF creation, the generator re-reads image XObjects, verifies they match source basenames one-for-one, then appends the manifest;
-  - extract path: manifest names are used only when object numbers and hashes validate, otherwise arbitrary PDF extraction falls back to `<pdf-base><N>.<ext>`;
-  - PDF input path: requires a valid manifest whose object numbers and hashes match the actual image streams.
+  - key: `/CardsheetSourceFilename`;
+  - location: each image XObject dictionary;
+  - value: original input basename only;
+  - write path: the local `fpdf` patch stores extra image dictionary string entries before `OutputFileAndClose`, so the PDF is written once by fpdf;
+  - extract path: names are used when `/CardsheetSourceFilename` exists, otherwise arbitrary PDF extraction falls back to `<pdf-base><N>.<ext>`;
+  - PDF input path: requires every extracted image XObject to have `/CardsheetSourceFilename`.
 - Only the basename is stored, never the full source path.
 - `cardsheet extract [--out-dir DIR] [--overwrite | --rename] input.pdf` extracts all images from all pages, including arbitrary external PDFs.
 - Mismatched or partial cardsheet metadata is ignored for general extraction and rejected for PDF input.
 - For external PDFs without valid cardsheet metadata, extraction falls back to `<pdf-base><N>.<ext>`.
 - In interactive mode, conflicts prompt with path, modification time, and size. In non-interactive mode, conflicts require `--overwrite` or `--rename`.
 - PDF inputs are limited to PDFs previously created by this utility. They are expanded into temporary image files before validation and layout, preserving argument order.
-- PDF input accepts only PDFs created by the same backend metadata family; arbitrary PDF input is rejected.
+- PDF input accepts PDFs with valid cardsheet source-name metadata; arbitrary PDF input is rejected.
 - The lightweight `fpdf` extraction reader supports `/DCTDecode` image streams as raw `.jpg` output and `/FlateDecode` DeviceGray/DeviceRGB 8-bit streams as reconstructed `.png` output. Unsupported filters, predictors, bit depths, or color spaces return deterministic errors naming the object or unsupported feature rather than silently writing corrupt files.
 - Wildcard expansion happens before validation and sorts matches lexicographically.
 
@@ -78,6 +79,7 @@
 
 - Default build uses the `pdfcpu` backend.
 - `go build -tags fpdf` uses the `fpdf` backend.
+- On the local-patch experiment branch, run `pwsh scripts/apply-fpdf-patch.ps1` before building or testing `-tags fpdf`; `go.mod` replaces `codeberg.org/go-pdf/fpdf` with the generated `internal/fpdfpatch/` directory.
 - Both backend variants should pass tests:
 
 ```sh

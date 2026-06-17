@@ -1,0 +1,79 @@
+diff --git a/def.go b/def.go
+index 9c0c2f4..2ee2d9f 100644
+--- a/def.go
++++ b/def.go
+@@ -185,6 +185,8 @@ type ImageInfoType struct {
+ 	scale float64 // Document scale factor
+ 	dpi   float64 // Dots-per-inch found from image file (png only)
+ 	i     string  // SHA-1 checksum of the above values.
++
++	extraDict map[string]string // Additional image XObject dictionary string entries.
+ }
+ 
+ type idEncoder struct {
+diff --git a/fpdf.go b/fpdf.go
+index a815e72..54ee7ac 100644
+--- a/fpdf.go
++++ b/fpdf.go
+@@ -3621,6 +3621,51 @@ func (f *Fpdf) GetImageInfo(imageStr string) (info *ImageInfoType) {
+ 	return f.images[imageStr]
+ }
+ 
++// SetImageDictionaryString stores a string entry in a registered image XObject
++// dictionary. The key must not include a leading slash.
++func (f *Fpdf) SetImageDictionaryString(imageStr, key, value string) {
++	info := f.images[imageStr]
++	if info == nil {
++		f.err = fmt.Errorf("image has not been registered: %s", imageStr)
++		return
++	}
++	if info.extraDict == nil {
++		info.extraDict = map[string]string{}
++	}
++	info.extraDict[key] = value
++}
++
++func keySortStringMap(m map[string]string) []string {
++	keys := make([]string, 0, len(m))
++	for key := range m {
++		keys = append(keys, key)
++	}
++	sort.Strings(keys)
++	return keys
++}
++
++func pdfLiteralString(s string) string {
++	var b strings.Builder
++	b.WriteByte('(')
++	for _, r := range s {
++		switch r {
++		case '\\', '(', ')':
++			b.WriteByte('\\')
++			b.WriteRune(r)
++		case '\n':
++			b.WriteString(`\n`)
++		case '\r':
++			b.WriteString(`\r`)
++		case '\t':
++			b.WriteString(`\t`)
++		default:
++			b.WriteRune(r)
++		}
++	}
++	b.WriteByte(')')
++	return b.String()
++}
++
+ // ImportObjects imports objects from gofpdi into current document
+ func (f *Fpdf) ImportObjects(objs map[string][]byte) {
+ 	maps.Copy(f.importedObjs, objs)
+@@ -4805,6 +4850,9 @@ func (f *Fpdf) putimage(info *ImageInfoType) {
+ 	if info.smask != nil {
+ 		f.outf("/SMask %d 0 R", f.n+1)
+ 	}
++	for _, key := range keySortStringMap(info.extraDict) {
++		f.outf("/%s %s", key, pdfLiteralString(info.extraDict[key]))
++	}
+ 	f.outf("/Length %d>>", len(info.data))
+ 	f.putstream(info.data)
+ 	f.out("endobj")

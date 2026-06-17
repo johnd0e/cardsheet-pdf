@@ -33,6 +33,7 @@ profile.cov
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+internal/fpdfpatch/
 
 # Go workspace file
 go.work

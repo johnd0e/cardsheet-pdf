@@ -5,8 +5,6 @@ package pdfgen
 import (
 	"path/filepath"
 
-	"cardsheet-pdf/internal/pdfimages"
-
 	"codeberg.org/go-pdf/fpdf"
 )
 
@@ -16,9 +14,8 @@ func init() {
 }
 
 type impl struct {
-	pdf         *fpdf.Fpdf
-	sourceNames []string
-	seenSrc     map[string]bool
+	pdf     *fpdf.Fpdf
+	seenSrc map[string]bool
 }
 
 func newImpl() Generator {
@@ -34,8 +31,8 @@ func (g *impl) AddImage(path, sourceName string, x, y, w, h float64) error {
 	}
 	if !g.seenSrc[path] {
 		g.seenSrc[path] = true
-		g.sourceNames = append(g.sourceNames, filepath.Base(sourceName))
 	}
+	g.pdf.SetImageDictionaryString(path, "CardsheetSourceFilename", filepath.Base(sourceName))
 	if info != nil {
 		x, y, w, h = fitImageRect(x, y, w, h, info.Width(), info.Height())
 	}
@@ -63,15 +60,5 @@ func (g *impl) NewPage() {
 }
 
 func (g *impl) Save(out string) error {
-	if err := g.pdf.OutputFileAndClose(out); err != nil {
-		return err
-	}
-	if len(g.sourceNames) == 0 {
-		return nil
-	}
-	images, err := pdfimages.Read(out)
-	if err != nil {
-		return err
-	}
-	return pdfimages.WriteManifest(out, images, g.sourceNames)
+	return g.pdf.OutputFileAndClose(out)
 }

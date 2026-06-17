@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -18,26 +16,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-const (
-	ManifestMarker  = "cardsheet"
-	ManifestVersion = 1
-	manifestPrefix  = "% cardsheet-manifest "
-)
-
-type Manifest struct {
-	Marker  string          `json:"marker"`
-	Version int             `json:"version"`
-	Images  []ManifestImage `json:"images"`
-}
-
-type ManifestImage struct {
-	ObjectNumber  int    `json:"objectNumber"`
-	SourceName    string `json:"sourceName"`
-	Extension     string `json:"extension"`
-	EncodedSHA256 string `json:"encodedSha256"`
-	DecodedSHA256 string `json:"decodedSha256,omitempty"`
-}
 
 type Image struct {
 	ObjectNumber  int
@@ -52,6 +30,7 @@ type Image struct {
 	EncodedSHA256 string
 	DecodedSHA256 string
 	Extension     string
+	SourceName    string
 }
 
 var (
@@ -61,6 +40,7 @@ var (
 	filterArrayRe  = regexp.MustCompile(`/Filter\s*\[(.*?)\]`)
 	filterNameRe   = regexp.MustCompile(`/Filter\s*/([A-Za-z0-9]+)`)
 	arrayNameRe    = regexp.MustCompile(`/([A-Za-z0-9]+)`)
+	sourceNameRe   = regexp.MustCompile(`/CardsheetSourceFilename\s*(\((?:\\.|[^\\)])*\)|<([0-9A-Fa-f]*)>)`)
 )
 
 func Read(path string) ([]Image, error) {
@@ -85,6 +65,7 @@ func Read(path string) ([]Image, error) {
 			Filters:      parseFilters(dict),
 			DecodeParms:  parseDecodeParms(dict),
 			Encoded:      append([]byte(nil), m[3]...),
+			SourceName:   parseSourceName(dict),
 		}
 		img.EncodedSHA256 = sum(img.Encoded)
 		if err := decode(&img); err != nil {
@@ -98,87 +79,16 @@ func Read(path string) ([]Image, error) {
 	return images, nil
 }
 
-func WriteManifest(path string, images []Image, sourceNames []string) error {
-	if len(images) != len(sourceNames) {
-		return fmt.Errorf("cardsheet manifest validation failed: found %d image objects for %d sources", len(images), len(sourceNames))
-	}
-	entries := make([]ManifestImage, len(images))
-	for i, img := range images {
-		entries[i] = ManifestImage{
-			ObjectNumber:  img.ObjectNumber,
-			SourceName:    filepath.Base(sourceNames[i]),
-			Extension:     img.Extension,
-			EncodedSHA256: img.EncodedSHA256,
-			DecodedSHA256: img.DecodedSHA256,
-		}
-	}
-	manifest := Manifest{
-		Marker:  ManifestMarker,
-		Version: ManifestVersion,
-		Images:  entries,
-	}
-	raw, err := json.Marshal(manifest)
-	if err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = fmt.Fprintf(f, "\n%s%s\n", manifestPrefix, base64.StdEncoding.EncodeToString(raw))
-	return err
-}
-
-func ReadManifest(path string) (*Manifest, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	idx := bytes.LastIndex(data, []byte(manifestPrefix))
-	if idx < 0 {
-		return nil, nil
-	}
-	line := data[idx+len(manifestPrefix):]
-	if nl := bytes.IndexAny(line, "\r\n"); nl >= 0 {
-		line = line[:nl]
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(line)))
-	if err != nil {
-		return nil, fmt.Errorf("invalid cardsheet manifest encoding: %w", err)
-	}
-	var manifest Manifest
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return nil, fmt.Errorf("invalid cardsheet manifest: %w", err)
-	}
-	if manifest.Marker != ManifestMarker || manifest.Version != ManifestVersion {
-		return nil, fmt.Errorf("unsupported cardsheet manifest")
-	}
-	return &manifest, nil
-}
-
-func ValidatedNames(path string, images []Image) (map[int]string, bool, error) {
-	manifest, err := ReadManifest(path)
-	if err != nil || manifest == nil {
-		return nil, false, err
-	}
-	if len(manifest.Images) != len(images) {
-		return nil, false, nil
-	}
-	byObject := map[int]Image{}
-	for _, img := range images {
-		byObject[img.ObjectNumber] = img
-	}
+func ValidatedSourceNames(path string, images []Image) (map[int]string, bool, error) {
 	names := map[int]string{}
-	for _, entry := range manifest.Images {
-		img, ok := byObject[entry.ObjectNumber]
-		if !ok || img.EncodedSHA256 != entry.EncodedSHA256 {
+	for _, img := range images {
+		if img.SourceName == "" {
 			return nil, false, nil
 		}
-		if entry.DecodedSHA256 != "" && img.DecodedSHA256 != entry.DecodedSHA256 {
-			return nil, false, nil
-		}
-		names[entry.ObjectNumber] = filepath.Base(entry.SourceName)
+		names[img.ObjectNumber] = filepath.Base(img.SourceName)
+	}
+	if len(images) == 0 {
+		return nil, false, nil
 	}
 	return names, true, nil
 }
@@ -385,6 +295,51 @@ func parseDecodeParms(dict string) map[string]int {
 		}
 	}
 	return out
+}
+
+func parseSourceName(dict string) string {
+	m := sourceNameRe.FindStringSubmatch(dict)
+	if len(m) == 0 {
+		return ""
+	}
+	if strings.HasPrefix(m[1], "(") {
+		return filepath.Base(unescapePDFString(m[1][1 : len(m[1])-1]))
+	}
+	raw, err := hex.DecodeString(m[2])
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(string(raw))
+}
+
+func unescapePDFString(s string) string {
+	var b strings.Builder
+	escaped := false
+	for _, r := range s {
+		if !escaped {
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			b.WriteRune(r)
+			continue
+		}
+		switch r {
+		case 'n':
+			b.WriteByte('\n')
+		case 'r':
+			b.WriteByte('\r')
+		case 't':
+			b.WriteByte('\t')
+		default:
+			b.WriteRune(r)
+		}
+		escaped = false
+	}
+	if escaped {
+		b.WriteByte('\\')
+	}
+	return b.String()
 }
 
 func sum(data []byte) string {
