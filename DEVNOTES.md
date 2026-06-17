@@ -21,7 +21,7 @@
 - Default backend: [`pdfcpu`](https://github.com/pdfcpu/pdfcpu). Build normally with `go build`.
 - Alternative backend: [`fpdf`](https://codeberg.org/go-pdf/fpdf). Build with `go build -tags fpdf`.
 - The default `pdfcpu` backend supports PDF inputs, wildcard expansion, image XObject source-name metadata, and `cardsheet extract`.
-- The `fpdf` backend supports image-to-PDF generation only.
+- The `fpdf` backend supports the same CLI surface for generation, `cardsheet extract`, wildcard expansion, and cardsheet-created PDF inputs, but its PDF parser is intentionally narrower.
 - `fpdf` centers images inside the requested rectangle while preserving aspect ratio.
 - `pdfcpu` uses high-level image boxes and fits image content into the requested rectangle while preserving aspect ratio.
 - `pdfcpu` coordinates are converted from millimetres to PDF points before passing data to `api.Create`.
@@ -48,17 +48,31 @@
 
 ## PDF Roundtrip
 
-- PDF roundtrip behavior is supported in the default Go build.
-- The `pdfcpu` generator writes `/CardsheetSourceFilename` into each image XObject after creating the PDF.
+- PDF roundtrip behavior is supported in both Go builds.
+- The two Go backends use different source-name metadata formats. They are backend-specific and are not currently cross-compatible.
+- Source-name storage in the default `pdfcpu` build:
+  - key: `/CardsheetSourceFilename`;
+  - location: each image XObject dictionary;
+  - value: original input basename only;
+  - write path: after PDF creation, the generator reopens the PDF and inserts the key into each image dictionary;
+  - extract path: names are used when `/CardsheetSourceFilename` exists, otherwise arbitrary PDF extraction falls back to `<pdf-base><N>.<ext>`;
+  - PDF input path: requires every extracted image XObject to have `/CardsheetSourceFilename`.
+- Source-name storage in the `fpdf` build:
+  - marker/version: identifies cardsheet manifest data;
+  - location: document-level cardsheet manifest written as a trailing PDF comment;
+  - per-image fields: image object number, original input basename, extension, encoded stream SHA-256, and decoded image SHA-256 when available;
+  - write path: after PDF creation, the generator re-reads image XObjects, verifies they match source basenames one-for-one, then appends the manifest;
+  - extract path: manifest names are used only when object numbers and hashes validate, otherwise arbitrary PDF extraction falls back to `<pdf-base><N>.<ext>`;
+  - PDF input path: requires a valid manifest whose object numbers and hashes match the actual image streams.
 - Only the basename is stored, never the full source path.
 - `cardsheet extract [--out-dir DIR] [--overwrite | --rename] input.pdf` extracts all images from all pages, including arbitrary external PDFs.
-- If `/CardsheetSourceFilename` exists, extraction uses that basename.
-- For external PDFs without this metadata, extraction falls back to `<pdf-base><N>.<ext>`.
+- Mismatched or partial cardsheet metadata is ignored for general extraction and rejected for PDF input.
+- For external PDFs without valid cardsheet metadata, extraction falls back to `<pdf-base><N>.<ext>`.
 - In interactive mode, conflicts prompt with path, modification time, and size. In non-interactive mode, conflicts require `--overwrite` or `--rename`.
 - PDF inputs are limited to PDFs previously created by this utility. They are expanded into temporary image files before validation and layout, preserving argument order.
-- The PDF input path rejects PDFs with image XObjects missing `/CardsheetSourceFilename`; `extract` keeps accepting those PDFs via fallback names.
+- PDF input accepts only PDFs created by the same backend metadata family; arbitrary PDF input is rejected.
+- The lightweight `fpdf` extraction reader supports `/DCTDecode` image streams as raw `.jpg` output and `/FlateDecode` DeviceGray/DeviceRGB 8-bit streams as reconstructed `.png` output. Unsupported filters, predictors, bit depths, or color spaces return deterministic errors naming the object or unsupported feature rather than silently writing corrupt files.
 - Wildcard expansion happens before validation and sorts matches lexicographically.
-- The `fpdf` build rejects `extract` and PDF inputs with `unsupported feature: rebuild without -tags fpdf`.
 
 ## Build Tags
 
