@@ -37,6 +37,17 @@ func depVersionOrUnknown(modulePrefix string) string {
 	return v
 }
 
+func backendModulePath(name string) string {
+	switch name {
+	case "fpdf":
+		return "codeberg.org/go-pdf/fpdf"
+	case "pdfcpu":
+		return "github.com/pdfcpu/pdfcpu"
+	default:
+		return ""
+	}
+}
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "extract" {
 		os.Exit(runExtract(os.Args[2:]))
@@ -64,9 +75,8 @@ func main() {
 	if AppVersion == "unknown" {
 		AppVersion = version.TryBuildInfoVersion()
 	}
-	pdfgen.BackendVersion = depVersionOrUnknown("codeberg.org/go-pdf/fpdf")
-	if pdfgen.BackendVersion == "unknown" {
-		pdfgen.BackendVersion = depVersionOrUnknown("github.com/pdfcpu/pdfcpu")
+	if modulePath := backendModulePath(pdfgen.BackendName); modulePath != "" {
+		pdfgen.BackendVersion = depVersionOrUnknown(modulePath)
 	}
 
 	if showVersion {
