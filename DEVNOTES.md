@@ -48,8 +48,9 @@
 
 ## PDF Roundtrip
 
-- PDF roundtrip behavior is supported in the default Go build.
-- The `pdfcpu` generator writes `/CardsheetSourceFilename` into each image XObject after creating the PDF.
+- PDF roundtrip behavior is supported in the default Go build and the Python prototype.
+- The Python prototype embeds each source image as an `EmbeddedFile` in the PDF-level `/Names → /EmbeddedFiles` name tree (ISO 32000, §7.11). File names are stored natively as PDF name-tree keys.
+- The Go (`pdfcpu`) backend writes `/CardsheetSourceFilename` into each image XObject after creating the PDF.
 - Only the basename is stored, never the full source path.
 - `cardsheet extract [--out-dir DIR] [--overwrite | --rename] input.pdf` extracts all images from all pages, including arbitrary external PDFs.
 - If `/CardsheetSourceFilename` exists, extraction uses that basename.
@@ -124,7 +125,7 @@ GOOS=linux GOARCH=amd64 go build
 - It declares its Python dependencies inline using script metadata.
 - Run it with `uv run`; `uv` creates and manages the script environment.
 - It supports the same core CLI options as the Go version: `-out`, `-gap`, `-vgap`, `-dpi`, `-verbose`, `-side-by-side`, and `-version`.
-- It also supports `extract`, PDF input, wildcard expansion, and `/CardsheetSourceFilename` metadata using [pypdf](https://pypdf.readthedocs.io/).
+- It also supports `extract`, PDF input, wildcard expansion, and EmbeddedFile-based name storage using [pypdf](https://pypdf.readthedocs.io/).
 - Image validation, effective-DPI reporting, and optional downsampling are implemented with [Pillow](https://python-pillow.org/).
 - Unsupported or unreadable images fail with an `input error`, matching the Go CLI behavior.
 

@@ -293,24 +293,17 @@ def prepare_images(files: list[Path], max_dpi: int) -> tuple[list[ImageInfo], li
 def generate_pdf(
     out_file: Path,
     placements: list[Placement],
-    source_names: list[str],
     preserve_aspect: bool,
-    attach: bool = False,
-    original_paths: list[Path] | None = None,
+    original_paths: list[Path],
 ) -> None:
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
-        import reportlab.pdfbase.pdfdoc as rldoc
     except ModuleNotFoundError as err:
         raise RuntimeError("reportlab is not installed; run this script with: uv run cardsheet.py") from err
 
-    # Patch PDFImageXObject so we can inject /CardsheetSourceFilename before save.
-    _patch_image_xobject(rldoc)
-
     pdf = canvas.Canvas(str(out_file), pagesize=A4)
     current_page = 0
-    source_index = 0
 
     for placement in placements:
         while current_page < placement.page:
@@ -322,8 +315,6 @@ def generate_pdf(
         w = mm(placement.w)
         h = mm(placement.h)
 
-        # Snapshot keys before drawing so we can detect the newly registered XObject.
-        keys_before = set(pdf._doc.idToObject)
         pdf.drawImage(
             str(placement.path),
             x,
@@ -333,55 +324,11 @@ def generate_pdf(
             preserveAspectRatio=preserve_aspect,
             anchor="c",
         )
-        # Tag any newly created image XObject with its source name.
-        if source_index < len(source_names):
-            new_keys = [k for k in pdf._doc.idToObject if k not in keys_before]
-            for key in new_keys:
-                xobj = pdf._doc.idToObject[key]
-                if isinstance(xobj, rldoc.PDFImageXObject):
-                    xobj._cardsheet_extra = {
-                        "CardsheetSourceFilename": rldoc.PDFString(Path(source_names[source_index]).name)
-                    }
-                    source_index += 1
-                    break
 
-    if attach and original_paths:
+    if original_paths:
         _embed_attachments(pdf, original_paths)
 
     pdf.save()
-
-
-def _patch_image_xobject(rldoc: object) -> None:
-    """Ensure rldoc.PDFImageXObject is our tagged subclass (idempotent)."""
-    if getattr(rldoc.PDFImageXObject, "_cardsheet_patched", False):
-        return
-
-    base = rldoc.PDFImageXObject
-
-    class TaggedImageXObject(base):
-        _cardsheet_patched = True
-        _cardsheet_extra: dict = {}
-
-        def format(self, document: object) -> object:
-            extra = self._cardsheet_extra
-            if not extra:
-                return super().format(document)
-            OrigStream = rldoc.PDFStream
-            _extra = extra
-
-            class _InjectedStream(OrigStream):
-                def __init__(self, *args: object, **kwargs: object) -> None:
-                    super().__init__(*args, **kwargs)
-                    for k, v in _extra.items():
-                        self.dictionary[k] = v
-
-            rldoc.PDFStream = _InjectedStream
-            try:
-                return super().format(document)
-            finally:
-                rldoc.PDFStream = OrigStream
-
-    rldoc.PDFImageXObject = TaggedImageXObject
 
 
 def _embed_attachments(pdf: "canvas.Canvas", paths: list[Path]) -> None:
@@ -392,7 +339,7 @@ def _embed_attachments(pdf: "canvas.Canvas", paths: list[Path]) -> None:
     seen: set[str] = set()
     names_array: list[object] = []
 
-    for path in sorted(paths, key=lambda p: p.name):
+    for path in paths:
         name = path.name
         if name in seen:
             base, ext = path.stem, path.suffix
@@ -526,10 +473,8 @@ def main(argv: list[str]) -> int:
         generate_pdf(
             args.out,
             placements,
-            [img.source_name for img in images],
             preserve_aspect=not args.stretch,
-            attach=args.attach,
-            original_paths=[img.original_path for img in images] if args.attach else None,
+            original_paths=[img.original_path for img in images],
         )
     except RuntimeError as err:
         print(f"save error: {err}", file=sys.stderr)
@@ -607,6 +552,26 @@ def expand_pdf_inputs(files: list[Path], temp_dirs: list[tempfile.TemporaryDirec
     return expanded
 
 
+def _read_embedded_files(reader: "PdfReader") -> list[tuple[str, bytes]]:
+    """Return (filename, data) pairs from the PDF EmbeddedFiles name tree."""
+    try:
+        names_dict = reader.trailer["/Root"]["/Names"]
+        ef_dict = names_dict["/EmbeddedFiles"]
+        names_array = ef_dict["/Names"]
+    except (KeyError, TypeError):
+        return []
+
+    result: list[tuple[str, bytes]] = []
+    i = 0
+    while i + 1 < len(names_array):
+        name = str(names_array[i])
+        filespec = names_array[i + 1].get_object()
+        data = filespec["/EF"]["/F"].get_object().get_data()
+        result.append((name, data))
+        i += 2
+    return result
+
+
 def extract_pdf_images(
     pdf_path: Path,
     out_dir: Path,
@@ -621,21 +586,24 @@ def extract_pdf_images(
     out_dir.mkdir(parents=True, exist_ok=True)
     reader = PdfReader(str(pdf_path))
     written: list[Path] = []
+
+    embedded = _read_embedded_files(reader)
+    if embedded:
+        for name, data in embedded:
+            target, should_write = resolve_output_path(out_dir / name, conflict_mode)
+            if should_write:
+                target.write_bytes(data)
+                written.append(target)
+        return written
+
+    if require_source_names:
+        raise ValueError(f"{pdf_path}: PDF input must be a PDF previously created by cardsheet")
+
     fallback = 1
     for page in reader.pages:
-        xobjects = page.get("/Resources", {}).get("/XObject", {})
         for image_file in getattr(page, "images", []):
-            source_name = ""
-            raw = xobjects.get(f"/{Path(image_file.name).stem}")
-            if raw is not None:
-                source_name = str(raw.get_object().get("/CardsheetSourceFilename", ""))
-            if source_name:
-                name = Path(source_name).name
-            else:
-                if require_source_names:
-                    raise ValueError(f"{pdf_path}: PDF input must be a PDF previously created by cardsheet")
-                suffix = Path(image_file.name).suffix or ".jpg"
-                name = f"{pdf_path.stem}{fallback}{suffix}"
+            suffix = Path(image_file.name).suffix or ".jpg"
+            name = f"{pdf_path.stem}{fallback}{suffix}"
             fallback += 1
             target, should_write = resolve_output_path(out_dir / name, conflict_mode)
             if not should_write:
