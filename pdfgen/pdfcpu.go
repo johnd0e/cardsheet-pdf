@@ -1,4 +1,4 @@
-//go:build !fpdf
+//go:build !fpdf && !gopdf && !gofpdf && !canvas
 
 package pdfgen
 

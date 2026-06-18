@@ -1,20 +1,19 @@
-//go:build fpdf
+//go:build gofpdf
 
 package pdfgen
 
-import "codeberg.org/go-pdf/fpdf"
+import "github.com/phpdave11/gofpdf"
 
 func init() {
-	BackendName = "fpdf"
-	// BackendVersion will be filled from build info in main if available.
+	BackendName = "gofpdf"
 }
 
 type impl struct {
-	pdf *fpdf.Fpdf
+	pdf *gofpdf.Fpdf
 }
 
 func newImpl() Generator {
-	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.AddPage()
 	return &impl{pdf: pdf}
 }
@@ -27,7 +26,6 @@ func (g *impl) AddImage(path, sourceName string, x, y, w, h float64) error {
 	if info != nil {
 		x, y, w, h = fitImageRect(x, y, w, h, info.Width(), info.Height())
 	}
-	// fpdf.Image accepts a file path for raster images.
 	g.pdf.Image(path, x, y, w, h, false, "", 0, "")
 	return g.pdf.Error()
 }

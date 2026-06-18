@@ -1,4 +1,4 @@
-//go:build fpdf
+//go:build fpdf || gopdf || gofpdf || canvas
 
 package main
 
@@ -9,14 +9,14 @@ import (
 )
 
 func runExtract(args []string) int {
-	fmt.Println("unsupported feature: rebuild without -tags fpdf")
+	fmt.Println("unsupported feature: rebuild with the default pdfcpu backend")
 	return 1
 }
 
 func expandPDFInputs(files []string) ([]string, func(), error) {
 	for _, path := range files {
 		if strings.EqualFold(filepath.Ext(path), ".pdf") {
-			return nil, nil, fmt.Errorf("%s: unsupported feature: rebuild without -tags fpdf", path)
+			return nil, nil, fmt.Errorf("%s: unsupported feature: rebuild with the default pdfcpu backend", path)
 		}
 	}
 	return files, nil, nil

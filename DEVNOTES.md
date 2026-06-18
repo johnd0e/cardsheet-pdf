@@ -17,17 +17,21 @@
 
 ## Backend Differences
 
-- The project supports two Go PDF backends behind the same `Generator` interface.
+- The project supports several Go PDF backends behind the same `Generator` interface.
 - Default backend: [`pdfcpu`](https://github.com/pdfcpu/pdfcpu). Build normally with `go build`.
 - Alternative backend: [`fpdf`](https://codeberg.org/go-pdf/fpdf). Build with `go build -tags fpdf`.
+- Experimental generation-only backends:
+  - [`gopdf`](https://github.com/signintech/gopdf), built with `go build -tags gopdf`.
+  - [`gofpdf`](https://github.com/phpdave11/gofpdf), built with `go build -tags gofpdf`.
+  - [`canvas`](https://github.com/tdewolff/canvas), built with `go build -tags canvas`.
 - The default `pdfcpu` backend supports PDF inputs, wildcard expansion, image XObject source-name metadata, and `cardsheet extract`.
-- The `fpdf` backend supports image-to-PDF generation only.
-- `fpdf` centers images inside the requested rectangle while preserving aspect ratio.
+- The `fpdf`, `gopdf`, `gofpdf`, and `canvas` backends support image-to-PDF generation only. They reject PDF inputs and `cardsheet extract`.
+- `fpdf`, `gopdf`, `gofpdf`, and `canvas` center images inside the requested rectangle while preserving aspect ratio.
 - `pdfcpu` uses high-level image boxes and fits image content into the requested rectangle while preserving aspect ratio.
 - `pdfcpu` coordinates are converted from millimetres to PDF points before passing data to `api.Create`.
 - `pdfcpu` uses `LowerLeft` origin, so y coordinates are translated from the CLI's top-left layout model.
 - Page layout coordinates are shared between backends, but image content inside each card rectangle may differ slightly because of backend rendering behavior.
-- Both backends overwrite an existing `-out` target.
+- All backends overwrite an existing `-out` target.
 
 ## Validation
 
@@ -58,17 +62,22 @@
 - PDF inputs are limited to PDFs previously created by this utility. They are expanded into temporary image files before validation and layout, preserving argument order.
 - The PDF input path rejects PDFs with image XObjects missing `/CardsheetSourceFilename`; `extract` keeps accepting those PDFs via fallback names.
 - Wildcard expansion happens before validation and sorts matches lexicographically.
-- The `fpdf` build rejects `extract` and PDF inputs with `unsupported feature: rebuild without -tags fpdf`.
+- Generation-only backend builds reject `extract` and PDF inputs with `unsupported feature: rebuild with the default pdfcpu backend`.
 
 ## Build Tags
 
 - Default build uses the `pdfcpu` backend.
 - `go build -tags fpdf` uses the `fpdf` backend.
-- Both backend variants should pass tests:
+- `go build -tags gopdf`, `go build -tags gofpdf`, and `go build -tags canvas` use experimental generation-only backends.
+- Build tags are intended to be mutually exclusive; combining backend tags is not supported.
+- Backend variants should pass tests:
 
 ```sh
 go test ./...
 go test -tags fpdf ./...
+go test -tags gopdf ./...
+go test -tags gofpdf ./...
+go test -tags canvas ./...
 ```
 
 Smoke-test generation with local sample files:
@@ -76,7 +85,22 @@ Smoke-test generation with local sample files:
 ```sh
 go run . -out cards.pdf card1.jpg card2.jpg
 go run -tags fpdf . -out cards.pdf card1.jpg card2.jpg
+go run -tags gopdf . -out cards.pdf card1.jpg card2.jpg
+go run -tags gofpdf . -out cards.pdf card1.jpg card2.jpg
+go run -tags canvas . -out cards.pdf card1.jpg card2.jpg
 ```
+
+Release-style size checks use stripped binaries with `-ldflags="-s -w"`:
+
+| Backend | Build command | Stripped binary | Dependency count |
+|---------|---------------|----------------:|-----------------:|
+| `pdfcpu` | `go build -ldflags="-s -w"` | 10.69 MiB | 265 |
+| `fpdf` | `go build -tags fpdf -ldflags="-s -w"` | 3.28 MiB | 135 |
+| `gopdf` | `go build -tags gopdf -ldflags="-s -w"` | 3.00 MiB | 136 |
+| `gofpdf` | `go build -tags gofpdf -ldflags="-s -w"` | 3.38 MiB | 135 |
+| `canvas` | `go build -tags canvas -ldflags="-s -w"` | 6.49 MiB | 360 |
+
+The experimental `gopdf` binary is the smallest measured variant. `gofpdf` is close to `fpdf`. `canvas` has a smaller binary than the default build but the largest dependency graph in this experiment.
 
 ## Examples
 
@@ -156,4 +180,5 @@ python -m unittest discover -s tests
 - Run `gofmt` on edited Go files.
 - Run `go test ./...`.
 - Run `go test -tags fpdf ./...` if any shared, layout, CLI, version, or pdfgen code changed.
-- For output/layout changes, generate both fpdf and pdfcpu smoke-test PDFs.
+- Run `go test -tags gopdf ./...`, `go test -tags gofpdf ./...`, and `go test -tags canvas ./...` when backend build constraints or shared generator code changes.
+- For output/layout changes, generate smoke-test PDFs for affected backends.

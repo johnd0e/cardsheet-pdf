@@ -10,7 +10,7 @@ type Generator interface {
 var BackendName = "unknown"
 var BackendVersion = "unknown"
 
-// New returns a Generator implementation for the active build (fpdf or pdfcpu).
+// New returns a Generator implementation for the active build tag.
 func New() Generator {
 	return newImpl()
 }
