@@ -327,10 +327,50 @@ def generate_pdf(
             anchor="c",
         )
 
+    if attach and original_paths:
+        _embed_attachments(pdf, original_paths)
+
     pdf.save()
     annotate_source_names(out_file, source_names)
-    if attach and original_paths:
-        attach_files(out_file, original_paths)
+
+
+def _embed_attachments(pdf: "canvas.Canvas", paths: list[Path]) -> None:
+    """Embed files as PDF-level attachments using ReportLab's internal PDF objects."""
+    import reportlab.pdfbase.pdfdoc as rldoc
+
+    doc = pdf._doc
+    seen: set[str] = set()
+    names_array: list[object] = []
+
+    for path in sorted(paths, key=lambda p: p.name):
+        name = path.name
+        if name in seen:
+            base, ext = path.stem, path.suffix
+            i = 1
+            while f"{base}-{i}{ext}" in seen:
+                i += 1
+            name = f"{base}-{i}{ext}"
+        seen.add(name)
+
+        ef_stream = rldoc.PDFStream(
+            dictionary=rldoc.PDFDictionary({"Type": rldoc.PDFName("EmbeddedFile")}),
+            content=path.read_bytes(),
+        )
+        ef_ref = doc.Reference(ef_stream)
+        fs_dict = rldoc.PDFDictionary({
+            "Type": rldoc.PDFName("Filespec"),
+            "F": rldoc.PDFString(name),
+            "EF": rldoc.PDFDictionary({"F": ef_ref}),
+        })
+        fs_ref = doc.Reference(fs_dict)
+        names_array.append(rldoc.PDFString(name))
+        names_array.append(fs_ref)
+
+    doc.Catalog.Names = rldoc.PDFDictionary({
+        "EmbeddedFiles": rldoc.PDFDictionary({
+            "Names": rldoc.PDFArray(names_array),
+        }),
+    })
 
 
 def annotate_source_names(pdf_path: Path, source_names: list[str]) -> None:
@@ -353,35 +393,8 @@ def annotate_source_names(pdf_path: Path, source_names: list[str]) -> None:
             resolved[NameObject("/CardsheetSourceFilename")] = TextStringObject(Path(source_names[index]).name)
             index += 1
 
-    writer = PdfWriter()
-    for page in reader.pages:
-        writer.add_page(page)
-    with pdf_path.open("wb") as fh:
-        writer.write(fh)
-
-
-def attach_files(pdf_path: Path, paths: list[Path]) -> None:
-    try:
-        from pypdf import PdfReader, PdfWriter
-    except ModuleNotFoundError as err:
-        raise RuntimeError("pypdf is not installed; run this script with: uv run cardsheet.py") from err
-
-    reader = PdfReader(str(pdf_path))
-    writer = PdfWriter()
-    for page in reader.pages:
-        writer.add_page(page)
-    seen: set[str] = set()
-    for path in paths:
-        name = path.name
-        if name in seen:
-            base = path.stem
-            ext = path.suffix
-            i = 1
-            while f"{base}-{i}{ext}" in seen:
-                i += 1
-            name = f"{base}-{i}{ext}"
-        seen.add(name)
-        writer.add_attachment(name, path.read_bytes())
+    # clone_from preserves catalog-level entries (e.g. EmbeddedFiles) from the reader
+    writer = PdfWriter(clone_from=reader)
     with pdf_path.open("wb") as fh:
         writer.write(fh)
 
