@@ -23,6 +23,7 @@ dist/
 !examples/output/
 !examples/output/.gitkeep
 !examples/output/*.png
+!examples/output/*.pdf
 !examples/SOURCES.md
 
 # Code coverage profiles and other test artifacts
