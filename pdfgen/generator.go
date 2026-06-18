@@ -7,10 +7,18 @@ type Generator interface {
 	Save(out string) error
 }
 
+type Options struct {
+	Stretch bool
+}
+
 var BackendName = "unknown"
 var BackendVersion = "unknown"
 
 // New returns a Generator implementation for the active build (fpdf or pdfcpu).
-func New() Generator {
-	return newImpl()
+func New(opts ...Options) Generator {
+	options := Options{}
+	if len(opts) > 0 {
+		options = opts[0]
+	}
+	return newImpl(options)
 }

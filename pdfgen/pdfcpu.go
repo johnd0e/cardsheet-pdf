@@ -5,6 +5,7 @@ package pdfgen
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,7 @@ type impl struct {
 	pages       []page
 	sourceNames []string
 	seenSrc     map[string]bool
+	stretch     bool
 }
 
 type page struct {
@@ -52,11 +54,14 @@ type createContent struct {
 	Images []imageBox `json:"image"`
 }
 
-func newImpl() Generator {
-	return &impl{pages: []page{{}}, seenSrc: map[string]bool{}}
+func newImpl(opts Options) Generator {
+	return &impl{pages: []page{{}}, seenSrc: map[string]bool{}, stretch: opts.Stretch}
 }
 
 func (g *impl) AddImage(path, sourceName string, x, y, w, h float64) error {
+	if g.stretch {
+		return errors.New("stretch is unsupported by the pdfcpu backend; use -tags fpdf or omit -stretch")
+	}
 	if len(g.pages) == 0 {
 		g.NewPage()
 	}

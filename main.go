@@ -58,6 +58,7 @@ func main() {
 	var dpi int
 	var verbose bool
 	var sideBySide bool
+	var stretch bool
 	var outFile string
 	var showVersion bool
 
@@ -66,6 +67,7 @@ func main() {
 	flag.IntVar(&dpi, "dpi", 0, "Limit embedded image resolution to this effective DPI")
 	flag.BoolVar(&verbose, "verbose", false, "Show image DPI and resize information")
 	flag.BoolVar(&sideBySide, "side-by-side", false, "Force side-by-side layout")
+	flag.BoolVar(&stretch, "stretch", false, "Stretch images to fill each card rectangle")
 	flag.StringVar(&outFile, "out", "output.pdf", "Output file")
 	flag.BoolVar(&showVersion, "version", false, "Show version and exit")
 	flag.Parse()
@@ -164,7 +166,7 @@ func main() {
 		BottomMargin:       20.0,
 	})
 
-	gen := pdfgen.New()
+	gen := pdfgen.New(pdfgen.Options{Stretch: stretch})
 	currentPage := 0
 	for i, p := range placements {
 		for currentPage < p.Page {

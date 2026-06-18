@@ -10,13 +10,14 @@ func init() {
 }
 
 type impl struct {
-	pdf *fpdf.Fpdf
+	pdf     *fpdf.Fpdf
+	stretch bool
 }
 
-func newImpl() Generator {
+func newImpl(opts Options) Generator {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.AddPage()
-	return &impl{pdf: pdf}
+	return &impl{pdf: pdf, stretch: opts.Stretch}
 }
 
 func (g *impl) AddImage(path, sourceName string, x, y, w, h float64) error {
@@ -24,7 +25,7 @@ func (g *impl) AddImage(path, sourceName string, x, y, w, h float64) error {
 	if err := g.pdf.Error(); err != nil {
 		return err
 	}
-	if info != nil {
+	if info != nil && !g.stretch {
 		x, y, w, h = fitImageRect(x, y, w, h, info.Width(), info.Height())
 	}
 	// fpdf.Image accepts a file path for raster images.
