@@ -67,6 +67,7 @@ cardsheet image1.jpg image2.jpg
 | `-gap <mm>` | Horizontal spacing; repeat to alternate between columns |
 | `-out <file>` | Output PDF file name; defaults to `output.pdf` and overwrites an existing file |
 | `-side-by-side` | Force side-by-side layout |
+| `-stretch` | Stretch images to fill each card rectangle; Go support requires the `fpdf` backend |
 | `-verbose` | Show image DPI and resize information |
 | `-version` | Show version and backend |
 | `-vgap <mm>` | Vertical spacing |

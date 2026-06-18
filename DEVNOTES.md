@@ -24,6 +24,7 @@
 - The `fpdf` backend supports image-to-PDF generation only.
 - `fpdf` centers images inside the requested rectangle while preserving aspect ratio.
 - `pdfcpu` uses high-level image boxes and fits image content into the requested rectangle while preserving aspect ratio.
+- The Python implementation supports `-stretch` through ReportLab. In Go, `-stretch` is supported by the `fpdf` backend; the default `pdfcpu` backend rejects it because pdfcpu's create image box path always best-fits images into the destination rectangle.
 - `pdfcpu` coordinates are converted from millimetres to PDF points before passing data to `api.Create`.
 - `pdfcpu` uses `LowerLeft` origin, so y coordinates are translated from the CLI's top-left layout model.
 - Page layout coordinates are shared between backends, but image content inside each card rectangle may differ slightly because of backend rendering behavior.
@@ -145,7 +146,7 @@ uv run cardsheet.py -out cards.pdf card1.jpg card2.jpg
 Run Python-only tests with the standard library test runner:
 
 ```sh
-python -m unittest discover -s tests
+uv run --with pillow --with pypdf --with reportlab python -m unittest discover -s tests
 ```
 
 ## Version Reporting
