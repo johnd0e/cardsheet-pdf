@@ -626,7 +626,7 @@ def extract_pdf_images(
         xobjects = page.get("/Resources", {}).get("/XObject", {})
         for image_file in getattr(page, "images", []):
             source_name = ""
-            raw = xobjects.get(f"/{image_file.name}")
+            raw = xobjects.get(f"/{Path(image_file.name).stem}")
             if raw is not None:
                 source_name = str(raw.get_object().get("/CardsheetSourceFilename", ""))
             if source_name:
