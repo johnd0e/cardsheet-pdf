@@ -1,7 +1,18 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "pillow>=10.0",
+#   "pypdf>=4.0",
+#   "reportlab>=4.0",
+# ]
+# ///
+
 import contextlib
 import io
+import os
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 import cardsheet
@@ -132,6 +143,34 @@ class CliTests(unittest.TestCase):
             got = cardsheet.expand_wildcards([root / "*.png"])
 
         self.assertEqual([p.name for p in got], ["a.png", "b.png"])
+
+
+class FakeTTY(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+class ConflictResolutionTests(unittest.TestCase):
+    def test_interactive_conflict_prompt_formats_mtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "card.png"
+            path.write_text("x")
+            timestamp = 1_700_000_000
+            os.utime(path, (timestamp, timestamp))
+
+            stdin = cardsheet.sys.stdin
+            stdout = io.StringIO()
+            try:
+                cardsheet.sys.stdin = FakeTTY("s\n")
+                with contextlib.redirect_stdout(stdout):
+                    got, should_write = cardsheet.resolve_output_path(path, "ask")
+            finally:
+                cardsheet.sys.stdin = stdin
+
+        self.assertEqual(got, path)
+        self.assertFalse(should_write)
+        want_mtime = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+        self.assertIn(f"modified {want_mtime}", stdout.getvalue())
 
 
 class ImagePreprocessTests(unittest.TestCase):

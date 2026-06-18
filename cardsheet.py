@@ -17,6 +17,7 @@ import importlib.metadata
 import tempfile
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 
@@ -421,6 +422,10 @@ def main(argv: list[str]) -> int:
         input_files = expand_pdf_inputs(args.files, temp_dirs)
         images, temp_files = prepare_images(input_files, args.dpi)
     except (RuntimeError, OSError, ValueError) as err:
+        for path in temp_files:
+            path.unlink(missing_ok=True)
+        for tmp in temp_dirs:
+            tmp.cleanup()
         print(f"input error: {err}", file=sys.stderr)
         return 1
 
@@ -523,7 +528,12 @@ def expand_pdf_inputs(files: list[Path], temp_dirs: list[tempfile.TemporaryDirec
             continue
         tmp = tempfile.TemporaryDirectory(prefix="cardsheet-pdf-input-")
         temp_dirs.append(tmp)
-        expanded.extend(extract_pdf_images(path, Path(tmp.name), "rename", require_source_names=True))
+        try:
+            expanded.extend(extract_pdf_images(path, Path(tmp.name), "rename", require_source_names=True))
+        except Exception:
+            tmp.cleanup()
+            temp_dirs.remove(tmp)
+            raise
     return expanded
 
 
@@ -547,6 +557,8 @@ def extract_pdf_images(
         for image_file in getattr(page, "images", []):
             source_name = ""
             raw = xobjects.get(f"/{image_file.name}")
+            if raw is None:
+                raw = xobjects.get(f"/{Path(image_file.name).stem}")
             if raw is not None:
                 source_name = str(raw.get_object().get("/CardsheetSourceFilename", ""))
             if source_name:
@@ -577,7 +589,7 @@ def resolve_output_path(path: Path, mode: str) -> tuple[Path, bool]:
     stat = path.stat()
     print(
         f"{path} exists ({format_bytes(stat.st_size)}, modified "
-        f"{stat.st_mtime:.0f}). overwrite/rename/skip? [o/r/s]: ",
+        f"{datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')}). overwrite/rename/skip? [o/r/s]: ",
         end="",
     )
     answer = sys.stdin.readline().strip().lower()
