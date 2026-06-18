@@ -301,11 +301,16 @@ def generate_pdf(
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
+        import reportlab.pdfbase.pdfdoc as rldoc
     except ModuleNotFoundError as err:
         raise RuntimeError("reportlab is not installed; run this script with: uv run cardsheet.py") from err
 
+    # Patch PDFImageXObject so we can inject /CardsheetSourceFilename before save.
+    _patch_image_xobject(rldoc)
+
     pdf = canvas.Canvas(str(out_file), pagesize=A4)
     current_page = 0
+    source_index = 0
 
     for placement in placements:
         while current_page < placement.page:
@@ -317,6 +322,8 @@ def generate_pdf(
         w = mm(placement.w)
         h = mm(placement.h)
 
+        # Snapshot keys before drawing so we can detect the newly registered XObject.
+        keys_before = set(pdf._doc.idToObject)
         pdf.drawImage(
             str(placement.path),
             x,
@@ -326,12 +333,55 @@ def generate_pdf(
             preserveAspectRatio=preserve_aspect,
             anchor="c",
         )
+        # Tag any newly created image XObject with its source name.
+        if source_index < len(source_names):
+            new_keys = [k for k in pdf._doc.idToObject if k not in keys_before]
+            for key in new_keys:
+                xobj = pdf._doc.idToObject[key]
+                if isinstance(xobj, rldoc.PDFImageXObject):
+                    xobj._cardsheet_extra = {
+                        "CardsheetSourceFilename": rldoc.PDFString(Path(source_names[source_index]).name)
+                    }
+                    source_index += 1
+                    break
 
     if attach and original_paths:
         _embed_attachments(pdf, original_paths)
 
     pdf.save()
-    annotate_source_names(out_file, source_names)
+
+
+def _patch_image_xobject(rldoc: object) -> None:
+    """Ensure rldoc.PDFImageXObject is our tagged subclass (idempotent)."""
+    if getattr(rldoc.PDFImageXObject, "_cardsheet_patched", False):
+        return
+
+    base = rldoc.PDFImageXObject
+
+    class TaggedImageXObject(base):
+        _cardsheet_patched = True
+        _cardsheet_extra: dict = {}
+
+        def format(self, document: object) -> object:
+            extra = self._cardsheet_extra
+            if not extra:
+                return super().format(document)
+            OrigStream = rldoc.PDFStream
+            _extra = extra
+
+            class _InjectedStream(OrigStream):
+                def __init__(self, *args: object, **kwargs: object) -> None:
+                    super().__init__(*args, **kwargs)
+                    for k, v in _extra.items():
+                        self.dictionary[k] = v
+
+            rldoc.PDFStream = _InjectedStream
+            try:
+                return super().format(document)
+            finally:
+                rldoc.PDFStream = OrigStream
+
+    rldoc.PDFImageXObject = TaggedImageXObject
 
 
 def _embed_attachments(pdf: "canvas.Canvas", paths: list[Path]) -> None:
@@ -371,32 +421,6 @@ def _embed_attachments(pdf: "canvas.Canvas", paths: list[Path]) -> None:
             "Names": rldoc.PDFArray(names_array),
         }),
     })
-
-
-def annotate_source_names(pdf_path: Path, source_names: list[str]) -> None:
-    try:
-        from pypdf import PdfReader, PdfWriter
-        from pypdf.generic import NameObject, TextStringObject
-    except ModuleNotFoundError as err:
-        raise RuntimeError("pypdf is not installed; run this script with: uv run cardsheet.py") from err
-
-    reader = PdfReader(str(pdf_path))
-    index = 0
-    for page in reader.pages:
-        xobjects = page.get("/Resources", {}).get("/XObject", {})
-        for obj in xobjects.values():
-            resolved = obj.get_object()
-            if resolved.get("/Subtype") != "/Image":
-                continue
-            if index >= len(source_names):
-                break
-            resolved[NameObject("/CardsheetSourceFilename")] = TextStringObject(Path(source_names[index]).name)
-            index += 1
-
-    # clone_from preserves catalog-level entries (e.g. EmbeddedFiles) from the reader
-    writer = PdfWriter(clone_from=reader)
-    with pdf_path.open("wb") as fh:
-        writer.write(fh)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
