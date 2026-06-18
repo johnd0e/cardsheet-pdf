@@ -78,6 +78,16 @@ go run . -out cards.pdf card1.jpg card2.jpg
 go run -tags fpdf . -out cards.pdf card1.jpg card2.jpg
 ```
 
+## Experiment Findings
+
+- fpdf trailing-manifest roundtrip is simple and avoids rewriting PDF object dictionaries after output, but it creates backend-specific metadata that the default `pdfcpu` path does not read from image XObjects.
+- fpdf XObject post-processing can place `/CardsheetSourceFilename` where the default extractor already expects it, but the approach is fragile because it rewrites generated PDF bytes after the backend has finished writing.
+- A local fpdf patch gives the cleanest generation pipeline because source-name metadata can be attached before `OutputFileAndClose`, so the PDF is written once. It should remain experimental until the API is suitable for upstream review.
+- The useful fpdf upstream shape is a narrow string-only image XObject metadata setter, not raw PDF dictionary injection.
+- Before an upstream fpdf proposal, harden dictionary key validation, PDF string escaping, deterministic metadata ordering, and image deduplication semantics when identical image bytes carry different metadata.
+- Generation-only backend experiments showed `gopdf` as the smallest measured binary, `gofpdf` as closest to `fpdf`, and `canvas` as a poor fit for source-name metadata despite a smaller binary than the default build.
+- The `pdfcpu` backend remains the default because it owns the stable roundtrip behavior: PDF input expansion, image XObject source-name metadata, and `cardsheet extract`.
+
 ## Examples
 
 The repository includes public-domain specimen cards for trying the layout modes:
