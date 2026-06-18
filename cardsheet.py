@@ -290,7 +290,14 @@ def prepare_images(files: list[Path], max_dpi: int) -> tuple[list[ImageInfo], li
     return results, temp_files
 
 
-def generate_pdf(out_file: Path, placements: list[Placement], source_names: list[str], preserve_aspect: bool) -> None:
+def generate_pdf(
+    out_file: Path,
+    placements: list[Placement],
+    source_names: list[str],
+    preserve_aspect: bool,
+    attach: bool = False,
+    original_paths: list[Path] | None = None,
+) -> None:
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
@@ -322,6 +329,8 @@ def generate_pdf(out_file: Path, placements: list[Placement], source_names: list
 
     pdf.save()
     annotate_source_names(out_file, source_names)
+    if attach and original_paths:
+        attach_files(out_file, original_paths)
 
 
 def annotate_source_names(pdf_path: Path, source_names: list[str]) -> None:
@@ -351,6 +360,32 @@ def annotate_source_names(pdf_path: Path, source_names: list[str]) -> None:
         writer.write(fh)
 
 
+def attach_files(pdf_path: Path, paths: list[Path]) -> None:
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ModuleNotFoundError as err:
+        raise RuntimeError("pypdf is not installed; run this script with: uv run cardsheet.py") from err
+
+    reader = PdfReader(str(pdf_path))
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    seen: set[str] = set()
+    for path in paths:
+        name = path.name
+        if name in seen:
+            base = path.stem
+            ext = path.suffix
+            i = 1
+            while f"{base}-{i}{ext}" in seen:
+                i += 1
+            name = f"{base}-{i}{ext}"
+        seen.add(name)
+        writer.add_attachment(name, path.read_bytes())
+    with pdf_path.open("wb") as fh:
+        writer.write(fh)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="cardsheet.py",
@@ -364,6 +399,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("-side-by-side", action="store_true", help="Force side-by-side layout")
     parser.add_argument("-out", type=Path, default=Path("output.pdf"), help="Output PDF file")
     parser.add_argument("-stretch", action="store_true", help="Stretch images to fill each card rectangle")
+    parser.add_argument("-attach", action="store_true", help="Also embed each source image as a file attachment in the PDF")
     parser.add_argument("-version", action="store_true", help="Show version and exit")
     return parser.parse_args(argv)
 
@@ -450,7 +486,14 @@ def main(argv: list[str]) -> int:
     )
 
     try:
-        generate_pdf(args.out, placements, [img.source_name for img in images], preserve_aspect=not args.stretch)
+        generate_pdf(
+            args.out,
+            placements,
+            [img.source_name for img in images],
+            preserve_aspect=not args.stretch,
+            attach=args.attach,
+            original_paths=[img.original_path for img in images] if args.attach else None,
+        )
     except RuntimeError as err:
         print(f"save error: {err}", file=sys.stderr)
         return 2
